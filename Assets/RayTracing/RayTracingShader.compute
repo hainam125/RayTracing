@@ -12,6 +12,16 @@ Texture2D<float4> _SkyboxTexture;
 SamplerState sampler_SkyboxTexture;
 static const float PI = 3.14159265;
 
+struct Sphere {
+    float3 position;
+    float radius;
+    float3 albedo;
+    float3 specular;
+};
+
+StructuredBuffer<Sphere> _Spheres;
+int _NumSpheres;
+
 struct Ray {
     float3 origin;
     float3 direction;
@@ -43,6 +53,8 @@ struct RayHit {
     float3 position;
     float distance;
     float3 normal;
+    float3 albedo;
+    float3 specular;
 };
 
 RayHit CreateRayHit() {
@@ -50,6 +62,8 @@ RayHit CreateRayHit() {
     hit.position = float3(0.0,0.0,0.0);
     hit.distance = 1.#INF;
     hit.normal = float3(0.0,0.0,0.0);
+    hit.albedo = float3(0.8,0.8,0.8);
+    hit.specular = float3(0.04,0.04,0.04);
     return hit;
 }
 
@@ -62,10 +76,10 @@ void IntersectGroundPlane(Ray ray, inout RayHit bestHit) {
     }
 }
 
-void IntersectSphere(Ray ray, inout RayHit bestHit, float4 sphere) {
-    float3 d = ray.origin - sphere.xyz;
+void IntersectSphere(Ray ray, inout RayHit bestHit, Sphere sphere) {
+    float3 d = ray.origin - sphere.position;
     float p1 = -dot(ray.direction, d);
-    float p2sqr = p1 * p1 - dot(d, d) + sphere.w * sphere.w;
+    float p2sqr = p1 * p1 - dot(d, d) + sphere.radius * sphere.radius;
     if (p2sqr < 0) return;
 
     float p2 = sqrt(p2sqr);
@@ -73,7 +87,9 @@ void IntersectSphere(Ray ray, inout RayHit bestHit, float4 sphere) {
     if (t > 0 && t < bestHit.distance) {
         bestHit.distance = t;
         bestHit.position = ray.origin + t * ray.direction;
-        bestHit.normal = normalize(bestHit.position - sphere.xyz);
+        bestHit.normal = normalize(bestHit.position - sphere.position);
+        bestHit.albedo = sphere.albedo;
+        bestHit.specular = sphere.specular;
     }
 }
 
@@ -81,32 +97,23 @@ void IntersectSphere(Ray ray, inout RayHit bestHit, float4 sphere) {
 RayHit Trace(Ray ray) {
     RayHit bestHit = CreateRayHit();
     IntersectGroundPlane(ray, bestHit);
-    IntersectSphere(ray, bestHit, float4(0.0, 1.0, 0.0, 1.0));
-    IntersectSphere(ray, bestHit, float4(-3, 1.0, 0.0, 1.0));
-    IntersectSphere(ray, bestHit, float4(3, 1.0, 0.0, 1.0));
-    IntersectSphere(ray, bestHit, float4(1.5, 1.0, 2.5, 1.0));
-    IntersectSphere(ray, bestHit, float4(-1.5, 1.0, 2.5, 1.0));
-    IntersectSphere(ray, bestHit, float4(4.5, 1.0, 2.5, 1.0));
-    IntersectSphere(ray, bestHit, float4(-4.5, 1.0, 2.5, 1.0));
+    for(uint i = 0; i < _NumSpheres; i++) IntersectSphere(ray, bestHit, _Spheres[i]);
     return bestHit;
 }
 
 float3 Shade(inout Ray ray, RayHit hit) {
     if (hit.distance < 1.#INF) {
-        float3 specular = float3(0.04,0.04,0.04);
-        float3 albedo = float3(0.8,0.8,0.8);
-
         // Reflect the ray and multiply energy with specular reflection
         ray.origin = hit.position + hit.normal * 0.001;
         ray.direction = reflect(ray.direction, hit.normal);
-        ray.energy *= specular;
+        ray.energy *= hit.specular;
 
         bool shadow = false;
         Ray shadowRay = CreateRay(hit.position + hit.normal * 0.001, -1 * _DirectionalLight.xyz);
         RayHit shadowHit = Trace(shadowRay);
         if(shadowHit.distance != 1.#INF) return float3(0.0,0.0,0.0);
 
-        return saturate(dot(hit.normal, _DirectionalLight.xyz) * -1) * _DirectionalLight.w * albedo;
+        return saturate(dot(hit.normal, _DirectionalLight.xyz) * -1) * _DirectionalLight.w * hit.albedo;
     }
     else {
         ray.energy = 0.0;
