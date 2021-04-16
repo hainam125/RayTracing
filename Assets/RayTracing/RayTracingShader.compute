@@ -6,6 +6,8 @@ float4x4 _CameraInverseProjection;
 
 float2 _PixelOffset;
 
+float4 _DirectionalLight;
+
 Texture2D<float4> _SkyboxTexture;
 SamplerState sampler_SkyboxTexture;
 static const float PI = 3.14159265;
@@ -91,15 +93,20 @@ RayHit Trace(Ray ray) {
 
 float3 Shade(inout Ray ray, RayHit hit) {
     if (hit.distance < 1.#INF) {
-        float3 specular = float3(0.6,0.6,0.6);
+        float3 specular = float3(0.04,0.04,0.04);
+        float3 albedo = float3(0.8,0.8,0.8);
 
         // Reflect the ray and multiply energy with specular reflection
         ray.origin = hit.position + hit.normal * 0.001;
         ray.direction = reflect(ray.direction, hit.normal);
         ray.energy *= specular;
 
-        // Return nothing
-        return float3(0.0,0.0,0.0);
+        bool shadow = false;
+        Ray shadowRay = CreateRay(hit.position + hit.normal * 0.001, -1 * _DirectionalLight.xyz);
+        RayHit shadowHit = Trace(shadowRay);
+        if(shadowHit.distance != 1.#INF) return float3(0.0,0.0,0.0);
+
+        return saturate(dot(hit.normal, _DirectionalLight.xyz) * -1) * _DirectionalLight.w * albedo;
     }
     else {
         ray.energy = 0.0;
